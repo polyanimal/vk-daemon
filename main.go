@@ -20,5 +20,23 @@ func main() {
 		log.Fatalf("Failed to export file name from env")
 	}
 
-	fmt.Println(filename)
+	var f *os.File
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		f, err = os.Create(filename)
+		if err != nil {
+			log.Fatalf("Failed to create file")
+		}
+	} else {
+		f, err = os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			log.Fatalf("Failed to open file")
+		}
+	}
+
+	defer f.Close()
+
+	_, err := f.WriteString("xxx\n")
+	if err != nil {
+		fmt.Println(err)
+	}
 }
