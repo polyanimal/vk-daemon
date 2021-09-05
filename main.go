@@ -1,10 +1,14 @@
 package main
 
 import (
-	"fmt"
+	"bytes"
+	"github.com/fsnotify/fsnotify"
 	"github.com/joho/godotenv"
 	"log"
 	"os"
+	"os/exec"
+	"os/signal"
+	"syscall"
 )
 
 func init() {
@@ -13,6 +17,19 @@ func init() {
 	}
 }
 
+func startUpLog(output *os.File) error {
+	lsusb := exec.Command("lsusb")
+	res, err := lsusb.Output()
+	if err != nil {
+		return err
+	}
+
+	for _, l := range bytes.SplitAfter(res, []byte("\n")) {
+		output.WriteString(string(l))
+	}
+
+	return nil
+}
 
 func main() {
 	filename, ok := os.LookupEnv("FILENAME")
@@ -35,8 +52,46 @@ func main() {
 
 	defer f.Close()
 
-	_, err := f.WriteString("xxx\n")
+	err := startUpLog(f)
 	if err != nil {
-		fmt.Println(err)
+		log.Println("error:", err)
 	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer watcher.Close()
+
+	err = watcher.Add("/var/log/syslog")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				log.Println("event:", event)
+				if event.Op&fsnotify.Write == fsnotify.Write {
+					log.Println("modified file:", event.Name)
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Println("error:", err)
+			}
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+
+	<-quit
+
+	return
 }
